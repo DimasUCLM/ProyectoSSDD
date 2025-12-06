@@ -1,7 +1,7 @@
 ﻿using Grpc.Net.Client;
 using Grpc.Core; // Necesario para manejar RpcException
 using Google.Protobuf.WellKnownTypes; // Necesario para 'Empty'
-using Restaurante.Protos; // ESTA ES LA CORRECTA
+using Restaurante.Protos; 
 
 namespace Repartidor;
 
@@ -9,16 +9,13 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        // 1. Configuración para permitir HTTP/2 sin TLS (Desarrollo local) [cite: 226-228]
         var httpHandler = new HttpClientHandler();
         httpHandler.ServerCertificateCustomValidationCallback = 
             HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 
-        // 2. Crear el canal con las opciones HTTP 
         var channel = GrpcChannel.ForAddress("http://localhost:5000",
             new GrpcChannelOptions { HttpHandler = httpHandler });
 
-        // 3. Crear el cliente [cite: 234]
         var client = new RestauranteService.RestauranteServiceClient(channel);
 
         Console.WriteLine("Cliente gRPC del Repartidor");
@@ -33,7 +30,7 @@ class Program
             switch (opcion)
             {
                 case "1":
-                    Console.WriteLine("Esperando pedidos disponibles..."); // Feedback visual extra
+                    Console.WriteLine("Esperando pedidos disponibles..."); 
                     await TomarPedidoParaRepartir(client);
                     break;
                 case "2":
@@ -49,11 +46,9 @@ class Program
     {
         try
         {
-            // Llamar al método remoto esperando a que el semáforo del servidor libere un pedido
-            // Se usa 'Empty' porque el método no requiere parámetros de entrada
+
             var response = await client.TomarPedidoParaRepartirAsync(new Empty());
 
-            // Mostrar en pantalla el ID del pedido recibido [cite: 244]
             Console.WriteLine($"\n>>> ¡Pedido Asignado!");
             Console.WriteLine($"ID del Pedido: {response.IdPedido}");
             Console.WriteLine($"Mensaje del Servidor: {response.Mensaje}");

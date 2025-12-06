@@ -30,13 +30,13 @@ message PlatoPedido {
 
 // The response message containing the order ID
 message PedidoResponse {
-  string id_pedido = 1;
+  int32 id_pedido = 1;
   string mensaje = 2;
 }
 
 // The request message for checking order status
 message ConsultaRequest {
-  string id_pedido = 1;
+  int32 id_pedido = 1;
 }
 
 // The response message containing order status

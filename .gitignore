@@ -1,0 +1,20 @@
+## Build output files
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+
+## Visual Studio cache files
+.vs/
+
+## Dependency directories
+packages/
+
+## Rider
+.idea/
+
+## gRPC/Protobuf generated files (Important for your case)
+# Only commit the .proto file, ignore the generated C# files
+# Note: If your project configuration automatically includes these generated files, 
+# you might need to adjust this list based on where they are placed.
+**/Protos/*.cs

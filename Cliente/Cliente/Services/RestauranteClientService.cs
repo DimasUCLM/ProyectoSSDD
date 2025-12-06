@@ -15,7 +15,6 @@ public class RestauranteClientService
         _serverAddress = serverAddress;
     }
 
-    // ERROR CS7036 SOLUCIONADO: Añadimos valor por defecto = "http://localhost:5000"
     public async Task ConnectAsync(string serverAddress = "http://localhost:5000")
     {
         string addressToUse = string.IsNullOrEmpty(serverAddress) ? _serverAddress : serverAddress;
@@ -31,7 +30,6 @@ public class RestauranteClientService
         
         Console.WriteLine($"Conectado al servidor en {addressToUse}");
 
-        // WARNING CS1998 SOLUCIONADO: Hacemos un await ficticio para que sea verdaderamente async
         await Task.CompletedTask; 
     }
 
@@ -67,7 +65,6 @@ public class RestauranteClientService
 
         try
         {
-            // WARNING CS8602 SOLUCIONADO: Añadimos '!' después de _client
             var response = await _client!.HacerPedidoAsync(request); 
             Console.WriteLine($"Pedido creado ID: {response.IdPedido}, Mensaje: {response.Mensaje}");
             return response;
@@ -82,44 +79,20 @@ public class RestauranteClientService
     public async Task<EstadoResponse> ConsultarEstadoPedidoAsync(string idPedidoStr)
     {
         EnsureConnected();
-
-        // ERROR CS0029 SOLUCIONADO:
-        // El error indica que el Proto espera STRING pero le dábamos INT.
-        // Si tu proto dice 'int32', el error sería al revés. 
-        // Asumiendo que el error manda, convertimos a string o int según corresponda.
-        // He preparado el código para que funcione si el Proto es int (parseando) o si es string.
-        
-        // OPCIÓN A: Si tu proto tiene 'int32 id_pedido', usa esto:
-        /*
-        if (!int.TryParse(idPedidoStr, out int idPedidoInt))
-        {
-             throw new ArgumentException("El ID debe ser un número");
-        }
-        var request = new ConsultaRequest { IdPedido = idPedidoInt };
-        */
-
-        // OPCIÓN B (Basada en tu error "int en string"):
-        // Si el compilador se queja de "int en string", es porque IdPedido es string.
-        // Usamos el string directamente:
         
         int idPedidoInt = 0;
-        // Mantenemos el TryParse solo para validar que sea numero, aunque lo enviemos como string
         if (!int.TryParse(idPedidoStr, out idPedidoInt)) 
         {
              Console.WriteLine("Advertencia: El ID introducido no parece un número estándar.");
         }
         
-        // IMPORTANTE: Aquí estaba el error CS0029. 
-        // Si esto vuelve a fallar, cambia 'idPedidoInt' por 'idPedidoStr' (si el proto es string)
-        // o asegúrate de que el proto sea int32.
-        // Para arreglarlo genéricamente según el error que me has dado:
+
         
-        var request = new ConsultaRequest { IdPedido = idPedidoStr }; 
+        var request = new ConsultaRequest { IdPedido = idPedidoInt }; 
 
     
         try
         {
-            // WARNING CS8602 SOLUCIONADO: Añadimos '!'
             var response = await _client!.ConsultarEstadoPedidoAsync(request);
             
             Console.WriteLine($"Estado del pedido {idPedidoStr}: {response.Estado}");

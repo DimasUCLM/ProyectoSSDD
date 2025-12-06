@@ -14,6 +14,11 @@ namespace Restaurante.Services
         private readonly object _takeLock;
         private int _orderID;
 
+        // Modificación ciclomotores
+        private readonly ConcurrentQueue<string> _motosQueue;
+        private readonly SemaphoreSlim _readyMotosSemaphore;
+        private const int maxMotos = 2; 
+
         public RestauranteService(ILogger<RestauranteService> logger)
         {
             _logger = logger;
@@ -21,45 +26,46 @@ namespace Restaurante.Services
             _readyOrdersSemaphore = new SemaphoreSlim(0);
             _takeLock = new object();
             _orderID = 1;
+            _motosQueue = new ConcurrentQueue<string>();
+            _readyMotosSemaphore = new SemaphoreSlim(maxMotos);
+            for (int i = 1; i <= maxMotos; i++)
+            {
+                _motosQueue.Enqueue($"Moto-{i}");
+            }
         }
 
         public override Task<PedidoResponse> HacerPedido(PedidoRequest request, ServerCallContext context)
         {
-            lock (_takeLock) 
+            lock (_takeLock)
             {
-                if (_ordersQueue.Count < MaxQueueCapacity) 
+                if (_ordersQueue.Count < MaxQueueCapacity)
                 {
-                    // ADAPTACIÓN: Usamos tu constructor en lugar de inicializador de objeto
-                    // Nota: Convertimos request.Platos (RepeatedField) a List usando .ToList()
-                    // Nota: Convertimos request.Distancia (float) a int
                     var pedido = new Pedido(
-                        _orderID, 
-                        request.Platos.ToList(), 
+                        _orderID,
+                        request.Platos.ToList(),
                         (int)request.Distancia
                     );
 
                     _ordersQueue.Enqueue(pedido);
-                    _logger.LogInformation($"Nuevo pedido recibido: {pedido.Id}"); 
-                    
-                    // Guardamos el ID actual (entero) para devolverlo en la respuesta
+                    _logger.LogInformation($"Nuevo pedido recibido: {pedido.Id}");
+
                     int idRespuesta = _orderID;
-                    _orderID++; 
-                    _readyOrdersSemaphore.Release(); 
+                    _orderID++;
+                    _readyOrdersSemaphore.Release();
 
                     return Task.FromResult(new PedidoResponse
                     {
                         IdPedido = idRespuesta,
                         Mensaje = "Pedido recibido y en preparación"
-                    }); 
+                    });
                 }
             }
-            
-            throw new RpcException(new Status(StatusCode.ResourceExhausted, "La cola está llena")); 
+
+            throw new RpcException(new Status(StatusCode.ResourceExhausted, "La cola está llena"));
         }
 
         public override Task<EstadoResponse> ConsultarEstadoPedido(ConsultaRequest request, ServerCallContext context)
         {
-            // ADAPTACIÓN: Convertimos el ID del request (int) a string para comparar con tu clase
             var pedido = _ordersQueue.FirstOrDefault(p => p.Id == request.IdPedido.ToString());
 
             if (pedido != null)
@@ -68,7 +74,6 @@ namespace Restaurante.Services
                 {
                     Estado = pedido.Estado,
                     Mensaje = "Pedido encontrado",
-                    // Usamos tu propiedad TiempoEstimado convertida a string
                     TiempoEstimado = $"{pedido.TiempoEstimado} min" 
                 }); 
             }
@@ -78,7 +83,6 @@ namespace Restaurante.Services
 
         public override Task<PedidoResponse> ConsultarPlatosPedido(ConsultaRequest request, ServerCallContext context)
         {
-            // ADAPTACIÓN: Comparación con ToString()
             var pedido = _ordersQueue.FirstOrDefault(p => p.Id == request.IdPedido.ToString());
 
             if (pedido != null)
@@ -87,7 +91,7 @@ namespace Restaurante.Services
 
                 return Task.FromResult(new PedidoResponse
                 {
-                    IdPedido = request.IdPedido, // Devolvemos el mismo ID int que nos pidieron
+                    IdPedido = request.IdPedido, 
                     Mensaje = $"Platos: {resumenPlatos}"
                 });
             }
@@ -97,32 +101,77 @@ namespace Restaurante.Services
 
         public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
         {
-            await _readyOrdersSemaphore.WaitAsync(); 
+            await _readyOrdersSemaphore.WaitAsync();
 
-            lock (_takeLock) 
+            await _readyMotosSemaphore.WaitAsync();
+
+            Pedido pedidoAsignado = null!;
+            string motoAsignada = string.Empty;
+
+            try
             {
-                if (_ordersQueue.TryDequeue(out Pedido pedido)) 
+                lock (_takeLock)
                 {
-                    // ADAPTACIÓN: Usamos tu método público para cambiar el estado (porque el set es private)
-                    pedido.ActualizarEstado("En reparto"); 
-                    
-                    _logger.LogInformation($"Pedido {pedido.Id} tomado para reparto.");
-                    
-                    return new PedidoResponse
+                    if (_ordersQueue.TryDequeue(out Pedido pedido) && _motosQueue.TryDequeue(out string moto))
                     {
-                        // Convertimos tu ID string de vuelta a int para el Proto
-                        IdPedido = int.Parse(pedido.Id), 
-                        Mensaje = "Pedido asignado para reparto"
-                    }; 
-                }
-            }
+                        pedidoAsignado = pedido;
+                        motoAsignada = moto;
 
-            throw new RpcException(new Status(StatusCode.Unavailable, "No hay pedidos disponibles")); 
+                        pedidoAsignado.ActualizarEstado("En reparto");
+
+                        _logger.LogInformation($"Pedido {pedidoAsignado.Id} tomado para reparto con {motoAsignada}.");
+                    }
+                    else
+                    {
+
+                        if (pedidoAsignado == null)
+                        {
+                            _readyOrdersSemaphore.Release();
+                        }
+                        // Si la moto no se extrajo, devolver el permiso de moto
+                        if (string.IsNullOrEmpty(motoAsignada))
+                        {
+                            _readyMotosSemaphore.Release();
+                        }
+
+                        throw new RpcException(new Status(StatusCode.Unavailable, "Error de sincronización: Recurso no encontrado."));
+                    }
+                }
+
+                Task.Run(async () =>
+                {
+                    _logger.LogInformation($"Iniciando reparto de Pedido {pedidoAsignado.Id} con {motoAsignada}. T.E.: {pedidoAsignado.TiempoEstimado}s");
+                    await Task.Delay(pedidoAsignado.TiempoEstimado * 1000); // Simular tiempo
+
+                    // Devolver el ciclomotor y liberar el semáforo
+                    _motosQueue.Enqueue(motoAsignada);
+                    _readyMotosSemaphore.Release();
+                    pedidoAsignado.ActualizarEstado("Entregado");
+                    _logger.LogInformation($"Ciclomotor {motoAsignada} devuelto. Pedido {pedidoAsignado.Id} entregado.");
+                });
+
+                return new PedidoResponse
+                {
+                    IdPedido = int.Parse(pedidoAsignado.Id),
+                    Mensaje = $"Pedido asignado para reparto con {motoAsignada}" // Mensaje mejorado
+                };
+            }
+            catch (RpcException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error crítico en TomarPedidoParaRepartir.");
+                throw new RpcException(new Status(StatusCode.Internal, "Error interno del servidor."));
+            }
         }
 
         public void Dispose()
         {
             _readyOrdersSemaphore?.Dispose();
+            _readyMotosSemaphore?.Dispose(); 
         }
+    
     }
 }
