@@ -102,7 +102,7 @@ namespace Restaurante.Services
         public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
         {
             await _readyOrdersSemaphore.WaitAsync();
-
+            //Ahora no sólo necesitas que haya pedidos, sino también motos disponibles
             await _readyMotosSemaphore.WaitAsync();
 
             Pedido pedidoAsignado = null!;
@@ -111,7 +111,7 @@ namespace Restaurante.Services
             try
             {
                 lock (_takeLock)
-                {
+                {   // Intentar extraer un pedido y una moto de las colas
                     if (_ordersQueue.TryDequeue(out Pedido pedido) && _motosQueue.TryDequeue(out string moto))
                     {
                         pedidoAsignado = pedido;
@@ -137,7 +137,7 @@ namespace Restaurante.Services
                         throw new RpcException(new Status(StatusCode.Unavailable, "Error de sincronización: Recurso no encontrado."));
                     }
                 }
-
+                // Simular el proceso de reparto asincrónicamente
                 Task.Run(async () =>
                 {
                     _logger.LogInformation($"Iniciando reparto de Pedido {pedidoAsignado.Id} con {motoAsignada}. T.E.: {pedidoAsignado.TiempoEstimado}s");

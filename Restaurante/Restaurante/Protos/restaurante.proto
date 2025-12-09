@@ -21,7 +21,7 @@ service RestauranteService {
 // The request message containing order details
 message PedidoRequest {
   repeated PlatoPedido platos = 1;
-  float distancia = 2;
+  int32 distancia = 2;
 }
 // A dish in the order
 message PlatoPedido {
