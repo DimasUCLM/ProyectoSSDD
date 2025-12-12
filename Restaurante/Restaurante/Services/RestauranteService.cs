@@ -15,7 +15,7 @@ namespace Restaurante.Services
         private int _orderID;
 
         // Modificación ciclomotores
-        private readonly ConcurrentQueue<string> _motosQueue;
+        private readonly ConcurrentQueue<Ciclomotor> _motosQueue;
         private readonly SemaphoreSlim _readyMotosSemaphore;
         private const int maxMotos = 2; 
 
@@ -26,11 +26,11 @@ namespace Restaurante.Services
             _readyOrdersSemaphore = new SemaphoreSlim(0);
             _takeLock = new object();
             _orderID = 1;
-            _motosQueue = new ConcurrentQueue<string>();
+            _motosQueue = new ConcurrentQueue<Ciclomotor>();
             _readyMotosSemaphore = new SemaphoreSlim(maxMotos);
             for (int i = 1; i <= maxMotos; i++)
             {
-                _motosQueue.Enqueue($"Moto-{i}");
+                _motosQueue.Enqueue(new Ciclomotor(i));
             }
         }
 
@@ -99,72 +99,87 @@ namespace Restaurante.Services
             throw new RpcException(new Status(StatusCode.NotFound, "Pedido no encontrado"));
         }
 
-        public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
+        // Archivo: RestauranteService.cs (MÉTODO RPC)
+
+    public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
+    {
+        // 1. ESPERAR POR PEDIDO DISPONIBLE
+        await _readyOrdersSemaphore.WaitAsync(); 
+
+        Ciclomotor motoAsignada;
+        Pedido pedidoAsignado;
+    
+        try
         {
-            await _readyOrdersSemaphore.WaitAsync();
-            //Ahora no sólo necesitas que haya pedidos, sino también motos disponibles
+            motoAsignada = await TomarCiclomotorParaRepartirAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            // Si fallamos en tomar la moto, liberamos el permiso de pedido que ya tomamos
+            _readyOrdersSemaphore.Release(); 
+            throw new RpcException(new Status(StatusCode.Unavailable, "Error al sincronizar con flota de motos."));
+        }
+
+        lock (_takeLock) // Usamos el lock para el acceso concurrente a la cola de pedidos
+        {
+            if (_ordersQueue.TryDequeue(out Pedido pedido)) 
+            {
+                pedidoAsignado = pedido;
+                pedidoAsignado.ActualizarEstado("En reparto");
+                _logger.LogInformation($"Pedido {pedidoAsignado.Id} tomado con {motoAsignada.Id}.");
+            }
+            else
+            {
+                // Si la cola de pedidos falla: 
+                // 1. Devolver la moto que ya aseguramos.
+                motoAsignada.Devolver();
+                _motosQueue.Enqueue(motoAsignada);
+                _readyMotosSemaphore.Release();
+            
+                // 2. Devolver el permiso de pedido.
+                _readyOrdersSemaphore.Release(); 
+                throw new RpcException(new Status(StatusCode.Unavailable, "Cola de pedidos vacía inesperadamente.")); 
+            }
+    }
+    
+        Task.Run(async () =>
+        {
+            await Task.Delay(pedidoAsignado.TiempoEstimado * 1000); 
+
+            // Devolver el ciclomotor
+            motoAsignada.Devolver();
+            _motosQueue.Enqueue(motoAsignada);
+            _readyMotosSemaphore.Release(); // Libera el permiso
+        
+            pedidoAsignado.ActualizarEstado("Entregado");
+            _logger.LogInformation($"Ciclomotor {motoAsignada.Id} devuelto. Pedido {pedidoAsignado.Id} entregado.");
+        });
+    
+        return new PedidoResponse
+        {
+            IdPedido = int.Parse(pedidoAsignado.Id), 
+            Mensaje = $"Pedido asignado para reparto con {motoAsignada.Id}" 
+        }; 
+}
+
+        private async Task<Ciclomotor> TomarCiclomotorParaRepartirAsync()
+        {
+            // Esperar por un permiso de semáforo
             await _readyMotosSemaphore.WaitAsync();
 
-            Pedido pedidoAsignado = null!;
-            string motoAsignada = string.Empty;
-
-            try
+             // Sección crítica para extraer la moto de la cola
+            lock (_takeLock) // Usamos el mismo lock que para los pedidos, aunque lo ideal es uno para motos
             {
-                lock (_takeLock)
-                {   // Intentar extraer un pedido y una moto de las colas
-                    if (_ordersQueue.TryDequeue(out Pedido pedido) && _motosQueue.TryDequeue(out string moto))
-                    {
-                        pedidoAsignado = pedido;
-                        motoAsignada = moto;
-
-                        pedidoAsignado.ActualizarEstado("En reparto");
-
-                        _logger.LogInformation($"Pedido {pedidoAsignado.Id} tomado para reparto con {motoAsignada}.");
-                    }
-                    else
-                    {
-
-                        if (pedidoAsignado == null)
-                        {
-                            _readyOrdersSemaphore.Release();
-                        }
-                        // Si la moto no se extrajo, devolver el permiso de moto
-                        if (string.IsNullOrEmpty(motoAsignada))
-                        {
-                            _readyMotosSemaphore.Release();
-                        }
-
-                        throw new RpcException(new Status(StatusCode.Unavailable, "Error de sincronización: Recurso no encontrado."));
-                    }
-                }
-                // Simular el proceso de reparto asincrónicamente
-                Task.Run(async () =>
-                {
-                    _logger.LogInformation($"Iniciando reparto de Pedido {pedidoAsignado.Id} con {motoAsignada}. T.E.: {pedidoAsignado.TiempoEstimado}s");
-                    await Task.Delay(pedidoAsignado.TiempoEstimado * 1000); // Simular tiempo
-
-                    // Devolver el ciclomotor y liberar el semáforo
-                    _motosQueue.Enqueue(motoAsignada);
-                    _readyMotosSemaphore.Release();
-                    pedidoAsignado.ActualizarEstado("Entregado");
-                    _logger.LogInformation($"Ciclomotor {motoAsignada} devuelto. Pedido {pedidoAsignado.Id} entregado.");
-                });
-
-                return new PedidoResponse
-                {
-                    IdPedido = int.Parse(pedidoAsignado.Id),
-                    Mensaje = $"Pedido asignado para reparto con {motoAsignada}" // Mensaje mejorado
-                };
-            }
-            catch (RpcException)
+            if (_motosQueue.TryDequeue(out Ciclomotor moto))
             {
-                throw;
+                moto.Asignar();
+                return moto;
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error crítico en TomarPedidoParaRepartir.");
-                throw new RpcException(new Status(StatusCode.Internal, "Error interno del servidor."));
-            }
+        }
+    
+        // Error de sincronización: devolver el permiso
+        _readyMotosSemaphore.Release(); 
+        throw new InvalidOperationException("Error de sincronización: Ciclomotor no encontrado en cola.");
         }
 
         public void Dispose()
