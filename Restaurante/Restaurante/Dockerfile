@@ -1,27 +1,22 @@
-# Etapa de construcción
+# Imagen base para compilación
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copiar el archivo de proyecto y restaurar dependencias
+# Copiamos el csproj y restauramos dependencias
 COPY ["Restaurante.csproj", "./"]
-RUN dotnet restore "./Restaurante.csproj"
+RUN dotnet restore "Restaurante.csproj"
 
-# Copiar todo el código fuente
+# Copiamos todo el resto de archivos y construimos
 COPY . .
 
-# Construir y publicar
-RUN dotnet build "Restaurante.csproj" -c Release -o /app/build
+# Construimos y publicamos
 RUN dotnet publish "Restaurante.csproj" -c Release -o /app/publish
 
-# Etapa de ejecución
+# Imagen final para ejecución
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
 WORKDIR /app
-
-# Copiar los archivos publicados
 COPY --from=build /app/publish .
 
-# Exponer solo el puerto 5000 (HTTP/2 para gRPC)
+# Exponer puertos
 EXPOSE 5000
-
-# Comando de inicio
 ENTRYPOINT ["dotnet", "Restaurante.dll"]

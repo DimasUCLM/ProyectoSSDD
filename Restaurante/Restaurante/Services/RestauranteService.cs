@@ -99,9 +99,8 @@ namespace Restaurante.Services
             throw new RpcException(new Status(StatusCode.NotFound, "Pedido no encontrado"));
         }
 
-        // Archivo: RestauranteService.cs (MÉTODO RPC)
 
-    public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
+    /*public override async Task<PedidoResponse> TomarPedidoParaRepartir(Empty request, ServerCallContext context)
     {
         // 1. ESPERAR POR PEDIDO DISPONIBLE
         await _readyOrdersSemaphore.WaitAsync(); 
@@ -142,50 +141,83 @@ namespace Restaurante.Services
             }
     }
     
-        Task.Run(async () =>
-        {
-            await Task.Delay(pedidoAsignado.TiempoEstimado * 1000); 
+}*/
 
-            // Devolver el ciclomotor
-            motoAsignada.Devolver();
-            _motosQueue.Enqueue(motoAsignada);
-            _readyMotosSemaphore.Release(); // Libera el permiso
         
-            pedidoAsignado.ActualizarEstado("Entregado");
-            _logger.LogInformation($"Ciclomotor {motoAsignada.Id} devuelto. Pedido {pedidoAsignado.Id} entregado.");
-        });
-    
-        return new PedidoResponse
+        public override async Task<PedidoInfo> CogerPedido(Empty request, ServerCallContext context)
         {
-            IdPedido = int.Parse(pedidoAsignado.Id), 
-            Mensaje = $"Pedido asignado para reparto con {motoAsignada.Id}" 
-        }; 
-}
+            _logger.LogInformation("Repartidor esperando en ventanilla por un pedido...");
+            
+            await _readyOrdersSemaphore.WaitAsync();
 
-        private async Task<Ciclomotor> TomarCiclomotorParaRepartirAsync()
+            Pedido pedidoAsignado;
+            lock (_takeLock)
+            {
+                if (!_ordersQueue.TryDequeue(out pedidoAsignado))
+                {
+                    _readyOrdersSemaphore.Release();
+                    throw new RpcException(new Status(StatusCode.Internal, "Error al sacar pedido de la cola"));
+                }
+                
+                pedidoAsignado.ActualizarEstado("Recogido por repartidor - Esperando Moto");
+                _logger.LogInformation($"Pedido {pedidoAsignado.Id} entregado al repartidor.");
+            }
+
+            return new PedidoInfo
+            {
+                IdPedido = int.Parse(pedidoAsignado.Id),
+                Distancia = pedidoAsignado.TiempoEstimado 
+            };
+        }
+
+        public override async Task<MotoInfo> CogerMoto(Empty request, ServerCallContext context)
         {
-            // Esperar por un permiso de semáforo
+            _logger.LogInformation("Repartidor esperando llaves de moto...");
+
             await _readyMotosSemaphore.WaitAsync();
 
-             // Sección crítica para extraer la moto de la cola
-            lock (_takeLock) // Usamos el mismo lock que para los pedidos, aunque lo ideal es uno para motos
+            Ciclomotor motoAsignada;
+            lock (_takeLock)
             {
-            if (_motosQueue.TryDequeue(out Ciclomotor moto))
-            {
-                moto.Asignar();
-                return moto;
+                if (!_motosQueue.TryDequeue(out motoAsignada))
+                {
+                    _readyMotosSemaphore.Release();
+                    throw new RpcException(new Status(StatusCode.Internal, "Error al sacar moto de la cola"));
+                }
+
+                motoAsignada.Asignar();
+                _logger.LogInformation($"Moto {motoAsignada.Id} entregada al repartidor.");
             }
+
+            return new MotoInfo
+            {
+                IdMoto = motoAsignada.Id
+            };
         }
-    
-        // Error de sincronización: devolver el permiso
-        _readyMotosSemaphore.Release(); 
-        throw new InvalidOperationException("Error de sincronización: Ciclomotor no encontrado en cola.");
+
+        public override Task<Empty> ConfirmarEntrega(EntregaRequest request, ServerCallContext context)
+        {
+            lock (_takeLock)
+            {
+                int idMotoNum = int.Parse(request.IdMoto.Replace("Moto-", "").Replace("Moto ", "")); 
+                
+                var motoDevuelta = new Ciclomotor(idMotoNum);
+                motoDevuelta.Devolver();
+
+                _motosQueue.Enqueue(motoDevuelta);
+
+                _readyMotosSemaphore.Release();
+
+                _logger.LogInformation($"Pedido {request.IdPedido} finalizado. Moto {request.IdMoto} devuelta y disponible.");
+            }
+
+            return Task.FromResult(new Empty());
         }
 
         public void Dispose()
         {
             _readyOrdersSemaphore?.Dispose();
-            _readyMotosSemaphore?.Dispose(); 
+            _readyMotosSemaphore?.Dispose();
         }
     
     }

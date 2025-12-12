@@ -8,12 +8,18 @@ import "google/protobuf/empty.proto";
 
 // The restaurant service definition
 service RestauranteService {
-  // Make an order
+ // Make an order
   rpc HacerPedido (PedidoRequest) returns (PedidoResponse);
-  // Get order status
+// Get order status
   rpc ConsultarEstadoPedido (ConsultaRequest) returns (EstadoResponse);
-  // For couriers: wait until a ready order is available and take it for delivery
+// For couriers: wait until a ready order is available and take it for delivery
   rpc TomarPedidoParaRepartir (google.protobuf.Empty) returns (PedidoResponse);
+// Check the dishes of the order
+  rpc ConsultarPlatosPedido(ConsultaRequest) returns (PedidoResponse);
+//Nueva logica para la moto
+  rpc CogerPedido (google.protobuf.Empty) returns (PedidoInfo);
+  rpc CogerMoto (google.protobuf.Empty) returns (MotoInfo); 
+  rpc ConfirmarEntrega(EntregaRequest) returns (google.protobuf.Empty);
 }
 
 // The request message containing order details
@@ -21,27 +27,37 @@ message PedidoRequest {
   repeated PlatoPedido platos = 1;
   int32 distancia = 2;
 }
-
 // A dish in the order
 message PlatoPedido {
   string nombre = 1;
   int32 cantidad = 2;
 }
-
 // The response message containing the order ID
 message PedidoResponse {
   int32 id_pedido = 1;
-  string mensaje = 2;
+  string mensaje = 2;  
 }
-
 // The request message for checking order status
 message ConsultaRequest {
   int32 id_pedido = 1;
 }
-
 // The response message containing order status
 message EstadoResponse {
   string estado = 1;
   string mensaje = 2;
-  int32 tiempo_estimado = 3;
+  string tiempo_estimado = 3;
+}
+
+message PedidoInfo {
+  int32 id_pedido = 1;
+  int32 distancia = 2;
+}
+
+message MotoInfo {
+  string id_moto = 1;
+}
+
+message EntregaRequest {
+  int32 id_pedido = 1;
+  string id_moto = 2;
 }

@@ -1,6 +1,6 @@
 ﻿using Grpc.Net.Client;
-using Grpc.Core; // Necesario para manejar RpcException
-using Google.Protobuf.WellKnownTypes; // Necesario para 'Empty'
+using Grpc.Core; 
+using Google.Protobuf.WellKnownTypes; 
 using Restaurante.Protos; 
 
 namespace Repartidor;
@@ -18,8 +18,9 @@ class Program
 
         var client = new RestauranteService.RestauranteServiceClient(channel);
 
-        Console.WriteLine("Cliente gRPC del Repartidor");
-        Console.WriteLine("1. Tomar pedido para repartir");
+        Console.Title = "Repartidor - Sistema Distribuido";
+        Console.WriteLine("--- CLIENTE REPARTIDOR ---");
+        Console.WriteLine("1. Entrar en turno (Empezar a repartir)");
         Console.WriteLine("2. Salir");
 
         while (true)
@@ -30,8 +31,7 @@ class Program
             switch (opcion)
             {
                 case "1":
-                    Console.WriteLine("Esperando pedidos disponibles..."); 
-                    await TomarPedidoParaRepartir(client);
+                    await RealizarReparto(client);
                     break;
                 case "2":
                     return;
@@ -42,26 +42,57 @@ class Program
         }
     }
 
-    static async Task TomarPedidoParaRepartir(RestauranteService.RestauranteServiceClient client)
+    static async Task RealizarReparto(RestauranteService.RestauranteServiceClient client)
     {
         try
         {
+            // --- PASO 1: ESPERAR COMIDA ---
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("\nEsperando en ventanilla por un pedido...");
+            
+            var pedidoInfo = await client.CogerPedidoAsync(new Empty());
 
-            var response = await client.TomarPedidoParaRepartirAsync(new Empty());
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"--> ¡Tengo el pedido ID: {pedidoInfo.IdPedido}!");
+            Console.WriteLine($"    Destino a {pedidoInfo.Distancia} km.");
 
-            Console.WriteLine($"\n>>> ¡Pedido Asignado!");
-            Console.WriteLine($"ID del Pedido: {response.IdPedido}");
-            Console.WriteLine($"Mensaje del Servidor: {response.Mensaje}");
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("Buscando ciclomotor disponible...");
+
+            var motoInfo = await client.CogerMotoAsync(new Empty());
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"--> ¡Moto conseguida! (ID: {motoInfo.IdMoto})");
+            
+
+            Console.WriteLine($"\n[3/3] Saliendo a repartir...");
+            Console.WriteLine("      Viajando...");
+
+            await Task.Delay(pedidoInfo.Distancia * 1000); 
+
+            Console.WriteLine("      ¡Pedido entregado! Volviendo al restaurante...");
+            
+            await client.ConfirmarEntregaAsync(new EntregaRequest { 
+                IdPedido = pedidoInfo.IdPedido,
+                IdMoto = motoInfo.IdMoto 
+            });
+            
+            Console.ResetColor();
+            Console.WriteLine("--> Regreso completado. Moto devuelta y lista.");
             
         }
         catch (RpcException ex)
         {
-            // Mostrar en pantalla el mensaje de error si falla
-            Console.WriteLine($"\nError al intentar tomar pedido: {ex.Status.Detail}");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\nError de comunicación: {ex.Status.Detail}");
+            Console.ResetColor();
         }
         catch (Exception ex)
         {
+            Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"\nError inesperado: {ex.Message}");
+            Console.ResetColor();
         }
     }
 }

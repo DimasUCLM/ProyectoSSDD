@@ -16,6 +16,10 @@ service RestauranteService {
   rpc TomarPedidoParaRepartir (google.protobuf.Empty) returns (PedidoResponse);
 // Check the dishes of the order
   rpc ConsultarPlatosPedido(ConsultaRequest) returns (PedidoResponse);
+//Nueva logica para la moto
+  rpc CogerPedido (google.protobuf.Empty) returns (PedidoInfo);
+  rpc CogerMoto (google.protobuf.Empty) returns (MotoInfo); 
+  rpc ConfirmarEntrega(EntregaRequest) returns (google.protobuf.Empty);
 }
 
 // The request message containing order details
@@ -42,4 +46,18 @@ message EstadoResponse {
   string estado = 1;
   string mensaje = 2;
   string tiempo_estimado = 3;
+}
+
+message PedidoInfo {
+  int32 id_pedido = 1;
+  int32 distancia = 2;
+}
+
+message MotoInfo {
+  string id_moto = 1;
+}
+
+message EntregaRequest {
+  int32 id_pedido = 1;
+  string id_moto = 2;
 }
